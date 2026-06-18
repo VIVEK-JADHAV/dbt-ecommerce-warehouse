@@ -1,0 +1,9 @@
+target/
+dbt_packages/
+logs/
+virenv/
+.env
+terraform/.env
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/.terraform/

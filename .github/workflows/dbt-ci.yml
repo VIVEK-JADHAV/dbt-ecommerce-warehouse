@@ -1,0 +1,44 @@
+name: dbt CI
+
+on:
+  pull_request:
+    branches: [main]
+
+env:
+  DBT_PROFILES_DIR: .
+  DBT_TARGET: dev
+
+jobs:
+  lint-and-test:
+    name: Lint, Build & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install dbt-redshift sqlfluff sqlfluff-templater-dbt
+
+      - name: SQL Lint
+        run: sqlfluff lint models/ --config .sqlfluff
+        continue-on-error: true
+
+      - name: dbt deps
+        run: dbt deps
+
+      - name: dbt compile
+        run: dbt compile
+
+      - name: dbt build
+        run: dbt build
+        env:
+          REDSHIFT_HOST: ${{ secrets.REDSHIFT_HOST }}
+          REDSHIFT_USER: ${{ secrets.REDSHIFT_USER }}
+          REDSHIFT_PASSWORD: ${{ secrets.REDSHIFT_PASSWORD }}

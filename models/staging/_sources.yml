@@ -1,0 +1,70 @@
+version: 2
+
+sources:
+  - name: raw_data
+    schema: raw_data
+    description: "SSB (Star Schema Benchmark) data loaded from AWS public S3 bucket"
+    tables:
+      - name: lineorder
+        description: "Fact table containing 600M+ order line items with revenue, cost, quantity, and discount information"
+        columns:
+          - name: lo_orderkey
+            description: "Unique order identifier"
+          - name: lo_linenumber
+            description: "Line item number within an order"
+          - name: lo_custkey
+            description: "Foreign key to customer table"
+          - name: lo_partkey
+            description: "Foreign key to part (product) table"
+          - name: lo_suppkey
+            description: "Foreign key to supplier table"
+          - name: lo_orderdate
+            description: "Order date as integer key (YYYYMMDD format)"
+          - name: lo_revenue
+            description: "Revenue for this line item (extended_price * (1 - discount/100))"
+          - name: lo_supplycost
+            description: "Cost of supplying this item"
+
+      - name: part
+        description: "Product dimension with 1.4M products across categories, brands, and manufacturers"
+        columns:
+          - name: p_partkey
+            description: "Unique product identifier"
+          - name: p_category
+            description: "Product category (e.g., MFGR#12)"
+          - name: p_brand1
+            description: "Product brand"
+          - name: p_mfgr
+            description: "Manufacturer"
+
+      - name: customer
+        description: "Customer dimension with 3M customers across regions and market segments"
+        columns:
+          - name: c_custkey
+            description: "Unique customer identifier"
+          - name: c_nation
+            description: "Customer's nation"
+          - name: c_region
+            description: "Customer's region (AMERICA, ASIA, EUROPE, MIDDLE EAST, AFRICA)"
+          - name: c_mktsegment
+            description: "Market segment (AUTOMOBILE, BUILDING, FURNITURE, HOUSEHOLD, MACHINERY)"
+
+      - name: supplier
+        description: "Supplier dimension with 200K suppliers across regions"
+        columns:
+          - name: s_suppkey
+            description: "Unique supplier identifier"
+          - name: s_nation
+            description: "Supplier's nation"
+          - name: s_region
+            description: "Supplier's region"
+
+      - name: dwdate
+        description: "Date dimension with 2.5K dates covering 7 years of calendar attributes"
+        columns:
+          - name: d_datekey
+            description: "Date key in YYYYMMDD integer format"
+          - name: d_year
+            description: "Calendar year"
+          - name: d_month
+            description: "Month name"

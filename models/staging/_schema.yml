@@ -1,0 +1,138 @@
+version: 2
+
+models:
+  - name: stg_lineorder
+    description: "Staged order line items — renamed columns, ready for joins in intermediate layer"
+    columns:
+      - name: order_key
+        description: "Unique order identifier"
+        tests:
+          - not_null
+      - name: line_number
+        description: "Line item number within an order"
+        tests:
+          - not_null
+      - name: customer_key
+        description: "FK to stg_customer"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_customer')
+              field: customer_key
+      - name: part_key
+        description: "FK to stg_part"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_part')
+              field: part_key
+      - name: supplier_key
+        description: "FK to stg_supplier"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_supplier')
+              field: supplier_key
+      - name: order_date_key
+        description: "FK to stg_date (integer YYYYMMDD format)"
+        tests:
+          - not_null
+      - name: quantity
+        description: "Number of units ordered"
+        tests:
+          - not_null
+      - name: revenue
+        description: "Revenue for this line item"
+        tests:
+          - not_null
+      - name: discount_pct
+        description: "Discount percentage (0-10)"
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 0
+              max_value: 10
+
+  - name: stg_customer
+    description: "Staged customer dimension — 3M customers with region, nation, market segment"
+    columns:
+      - name: customer_key
+        description: "Unique customer identifier"
+        tests:
+          - unique
+          - not_null
+      - name: customer_name
+        description: "Customer name"
+        tests:
+          - not_null
+      - name: region
+        description: "Geographic region"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['AMERICA', 'ASIA', 'EUROPE', 'MIDDLE EAST', 'AFRICA']
+      - name: market_segment
+        description: "Business market segment"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['AUTOMOBILE', 'BUILDING', 'FURNITURE', 'HOUSEHOLD', 'MACHINERY']
+
+  - name: stg_part
+    description: "Staged product dimension — 1.4M products with category, brand, manufacturer"
+    columns:
+      - name: part_key
+        description: "Unique product identifier"
+        tests:
+          - unique
+          - not_null
+      - name: category
+        description: "Product category"
+        tests:
+          - not_null
+      - name: brand
+        description: "Product brand"
+        tests:
+          - not_null
+      - name: manufacturer
+        description: "Product manufacturer"
+        tests:
+          - not_null
+
+  - name: stg_supplier
+    description: "Staged supplier dimension — 200K suppliers with region and nation"
+    columns:
+      - name: supplier_key
+        description: "Unique supplier identifier"
+        tests:
+          - unique
+          - not_null
+      - name: region
+        description: "Supplier's geographic region"
+        tests:
+          - not_null
+      - name: nation
+        description: "Supplier's nation"
+        tests:
+          - not_null
+
+  - name: stg_date
+    description: "Staged date dimension — calendar attributes for 7 years"
+    columns:
+      - name: date_key
+        description: "Date key in YYYYMMDD integer format"
+        tests:
+          - unique
+          - not_null
+      - name: year
+        description: "Calendar year"
+        tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 1992
+              max_value: 1998
+      - name: month_num_in_year
+        description: "Month number (1-12)"
+        tests:
+          - dbt_expectations.expect_column_values_to_be_between:
+              min_value: 1
+              max_value: 12
