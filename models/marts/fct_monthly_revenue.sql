@@ -1,5 +1,16 @@
+{{
+    config(
+        materialized='incremental',
+        unique_key=['order_year', 'order_month_num', 'customer_region', 'product_category'],
+        incremental_strategy='delete+insert'
+    )
+}}
+
 with orders as (
     select * from {{ ref('int_orders_enriched') }}
+    {% if is_incremental() %}
+        where order_date_key >= (select max(order_date_key) - 3 from {{ ref('int_orders_enriched') }})
+    {% endif %}
 )
 
 select

@@ -1,5 +1,16 @@
+{{
+    config(
+        materialized='incremental',
+        unique_key=['order_key', 'line_number'],
+        incremental_strategy='delete+insert'
+    )
+}}
+
 with orders as (
     select * from {{ ref('stg_lineorder') }}
+    {% if is_incremental() %}
+        where order_date_key >= (select max(order_date_key) - 3 from {{ this }})
+    {% endif %}
 ),
 
 customers as (
