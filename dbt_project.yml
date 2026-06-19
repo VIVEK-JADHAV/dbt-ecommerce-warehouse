@@ -14,14 +14,24 @@ clean-targets:
   - "target"
   - "dbt_packages"
 
+on-run-end:
+  - "{{ log('dbt run completed at ' ~ run_started_at, info=true) }}"
+
 models:
   shopstream:
     staging:
       +materialized: view
       +schema: staging
+      +tags: ['hourly']
     intermediate:
       +materialized: table
       +schema: intermediate
+      +tags: ['daily']
+      +post-hook: "ANALYZE {{ this }}"
     marts:
       +materialized: table
       +schema: marts
+      +tags: ['daily']
+      +post-hook:
+        - "ANALYZE {{ this }}"
+        

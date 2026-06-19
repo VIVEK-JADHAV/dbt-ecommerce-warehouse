@@ -2,7 +2,8 @@
     config(
         materialized='incremental',
         unique_key=['order_year', 'order_month_num', 'customer_region', 'product_category'],
-        incremental_strategy='delete+insert'
+        incremental_strategy='delete+insert',
+        tags=['critical']
     )
 }}
 
