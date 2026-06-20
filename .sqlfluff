@@ -3,6 +3,7 @@ templater = dbt
 dialect = redshift
 max_line_length = 120
 indent_unit = space
+exclude_rules = LT01, RF02, RF04, ST06
 
 [sqlfluff:indentation]
 tab_space_size = 4
@@ -16,8 +17,19 @@ capitalisation_policy = lower
 [sqlfluff:rules:capitalisation.functions]
 capitalisation_policy = lower
 
+[sqlfluff:rules:layout.spacing]
+# Allow aligned AS keywords (common dbt style)
+enabled = false
+
+[sqlfluff:rules:references.keywords]
+# Allow 'year', 'month' etc as column aliases
+enabled = false
+
+[sqlfluff:rules:structure.column_order]
+# Don't enforce wildcard-first ordering
+enabled = false
+
 [sqlfluff:templater:dbt]
 project_dir = .
-profiles_dir = .
 profile = shopstream
 target = dev
