@@ -30,12 +30,12 @@ jobs:
       - name: dbt deps
         run: dbt deps
 
-      - name: Download production manifest
-        uses: actions/download-artifact@v4
-        with:
-          name: dbt-manifest
-          path: target-prod/
-        continue-on-error: true
+      - name: Download production manifest from dbt-manifest branch
+        run: |
+          mkdir -p target-prod
+          git fetch origin dbt-manifest:dbt-manifest 2>/dev/null && \
+          git show dbt-manifest:manifest.json > target-prod/manifest.json 2>/dev/null || \
+          echo "No production manifest branch found"
 
       - name: dbt build (production - only modified + downstream)
         run: |
@@ -47,9 +47,13 @@ jobs:
             dbt build --target prod
           fi
 
-      - name: Upload production manifest
-        uses: actions/upload-artifact@v4
-        with:
-          name: dbt-manifest
-          path: target/manifest.json
-          retention-days: 30
+      - name: Upload production manifest to dbt-manifest branch
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git checkout --orphan dbt-manifest-tmp
+          git rm -rf . 2>/dev/null || true
+          cp target/manifest.json .
+          git add manifest.json
+          git commit -m "Update production manifest"
+          git push origin dbt-manifest-tmp:dbt-manifest --force
