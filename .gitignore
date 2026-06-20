@@ -8,3 +8,4 @@ terraform/*.tfstate
 terraform/*.tfstate.*
 terraform/.terraform/
 SPRINT_VIDEOS.md
+dbt_internal_packages/
