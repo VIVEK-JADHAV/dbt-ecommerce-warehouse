@@ -36,10 +36,10 @@ jobs:
 
       - name: Download production manifest from dbt-manifest branch
         run: |
+          mkdir -p target-prod
           git fetch origin dbt-manifest:dbt-manifest 2>/dev/null && \
           git show dbt-manifest:manifest.json > target-prod/manifest.json 2>/dev/null || \
           echo "No production manifest branch found"
-          mkdir -p target-prod
 
       - name: dbt build (slim CI - only modified + downstream)
         run: |
