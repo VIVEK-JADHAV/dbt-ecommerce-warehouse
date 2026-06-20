@@ -1,7 +1,7 @@
-name: dbt CI
+name: dbt Deploy
 
 on:
-  pull_request:
+  push:
     branches: [main]
 
 env:
@@ -11,8 +11,8 @@ env:
   REDSHIFT_PASSWORD: ${{ secrets.REDSHIFT_PASSWORD }}
 
 jobs:
-  lint-and-test:
-    name: Lint, Build & Test (Slim CI)
+  deploy:
+    name: Deploy to Production
     runs-on: ubuntu-latest
 
     steps:
@@ -25,14 +25,10 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install dbt-redshift sqlfluff sqlfluff-templater-dbt
+        run: pip install dbt-redshift
 
       - name: dbt deps
         run: dbt deps
-
-      - name: SQL Lint
-        run: sqlfluff lint models/ --config .sqlfluff
-        continue-on-error: true
 
       - name: Download production manifest
         uses: actions/download-artifact@v4
@@ -41,12 +37,19 @@ jobs:
           path: target-prod/
         continue-on-error: true
 
-      - name: dbt build (slim CI - only modified + downstream)
+      - name: dbt build (production - only modified + downstream)
         run: |
           if [ -f target-prod/manifest.json ]; then
-            echo "Production manifest found — running slim CI"
-            dbt build --select state:modified+ --state target-prod/
+            echo "Production manifest found — deploying only changes"
+            dbt build --select state:modified+ --state target-prod/ --target prod
           else
-            echo "No production manifest — running full build"
-            dbt build
+            echo "No production manifest — full build"
+            dbt build --target prod
           fi
+
+      - name: Upload production manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbt-manifest
+          path: target/manifest.json
+          retention-days: 30
