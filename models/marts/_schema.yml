@@ -44,6 +44,13 @@ models:
 
   - name: fct_customer_lifetime_value
     description: "Customer lifetime value — total revenue, profit, order count, and years active per customer. Used for customer segmentation and retention analysis."
+    latest_version: 2
+    versions:
+      - v: 1
+        defined_in: fct_customer_lifetime_value_v1
+        deprecation_date: 2026-09-01
+      - v: 2
+        defined_in: fct_customer_lifetime_value_v2
     columns:
       - name: customer_key
         description: "Unique customer identifier"
