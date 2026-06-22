@@ -183,9 +183,16 @@ graph LR
     end
 
     subgraph Marts
-        FCT_R[fct_monthly_revenue]
-        FCT_C[fct_customer_lifetime_value]
+        FCT_R[fct_monthly_revenue<br/>incremental]
+        FCT_C[fct_customer_lifetime_value<br/>v1 + v2]
         FCT_P[fct_product_performance]
+    end
+
+    subgraph Vault["Data Vault 2.0"]
+        HUB_C[hub_customers]
+        HUB_P[hub_products]
+        LNK[link_order_product]
+        SAT[sat_customer_details]
     end
 
     subgraph Snapshots
@@ -196,6 +203,8 @@ graph LR
     RAW --> STG_L & STG_C & STG_P & STG_S & STG_D
     STG_L & STG_C & STG_P & STG_S & STG_D --> INT
     INT --> FCT_R & FCT_C & FCT_P
+    STG_L --> HUB_P & LNK
+    STG_C --> HUB_C & SAT
     STG_S --> SNP_S
     STG_C --> SNP_C
 ```
@@ -248,9 +257,17 @@ dbt-ecommerce-warehouse/
 │   │   └── int_orders_enriched.sql
 │   ├── marts/              # Tables — aggregated metrics
 │   │   ├── _schema.yml     # Tests + column docs for marts
-│   │   ├── fct_monthly_revenue.sql
-│   │   ├── fct_customer_lifetime_value.sql
+│   │   ├── fct_monthly_revenue.sql         # incremental
+│   │   ├── fct_customer_lifetime_value_v1.sql  # deprecated
+│   │   ├── fct_customer_lifetime_value_v2.sql  # current
 │   │   └── fct_product_performance.sql
+│   ├── vault/raw/          # Data Vault 2.0 (insert-only)
+│   │   ├── stg_vault_orders.sql      # hash key computation
+│   │   ├── stg_vault_customers.sql   # hash key + hash_diff
+│   │   ├── hub_customers.sql         # customer business keys
+│   │   ├── hub_products.sql          # product business keys
+│   │   ├── link_order_product.sql    # customer↔product relationship
+│   │   └── sat_customer_details.sql  # customer attribute history
 │   └── overview.md         # Custom docs landing page
 ├── snapshots/
 │   ├── snp_supplier.sql    # SCD Type II for supplier changes
@@ -275,6 +292,13 @@ dbt-ecommerce-warehouse/
 
 - **Table for intermediate (not ephemeral):** The 600M row join is expensive. Ephemeral would re-execute it for each mart (3× cost). Table stores it once.
 - **View for staging:** No storage cost — just SQL aliases for clean names. Always fresh (reads from source on query).
+- **Incremental for int_orders_enriched + fct_monthly_revenue:** 3-day lookback window catches late corrections without reprocessing 600M rows. Second run takes seconds vs minutes.
+- **delete+insert over merge:** Proven pattern on Redshift. Deletes affected rows then re-inserts — same result as merge but more compatible.
+- **Model versioning for CLV:** v1 deprecated (sunset 2026-09-01), v2 adds `avg_discount_pct` + `unique_suppliers`. Consumers migrate at their pace.
+- **Data Vault for raw layer:** Insert-only, full auditability, parallel loading. Hubs/links/sats track all history without ever updating.
+- **Plain MD5 over automate_dv package:** automate_dv's hash macro uses DECODE which is incompatible with Redshift. Raw MD5 with concatenation is simpler and works everywhere.
 - **check strategy for snapshots:** Source data has no `updated_at` column. Check strategy compares column values directly.
 - **Separate schema per layer:** Clear separation in Redshift. Analysts know `prod_marts.*` is trustworthy. `dev_staging.*` is work-in-progress.
+- **Slim CI with manifest branch:** Production manifest stored in a git branch (not artifacts). Cross-workflow accessible. PRs only build modified + downstream models.
+- **Tags for scheduling:** `hourly` (staging views — always fresh), `daily` (intermediate, marts, vault — batch updates).
 - **dbt_expectations over custom SQL:** Declarative range tests in YAML are easier to maintain than writing custom SQL for every boundary check.
