@@ -77,6 +77,12 @@ raw_data (source)  →  staging (clean)  →  intermediate (join)  →  marts (a
 - Grouped by: product (one row per product)
 - Uses `profit_margin` macro for reusable margin calculation
 
+**`fct_customer_segments`** (table, vault-fed) — "What tier is each customer in based on order activity?"
+- Reads ONLY from vault tables (hub_customers + sat_customer_details + link_order_product)
+- Computes: total orders, unique products, customer tier (platinum/gold/silver/bronze)
+- Demonstrates the vault→mart path: Hub (entity) + Satellite (current attributes) + Link (activity) = business answer
+- Tagged `vault-fed` to distinguish from star-schema-fed marts
+
 ---
 
 ### 5. Data Vault 2.0 — Auditable Raw Layer
@@ -97,7 +103,7 @@ raw_data (source)  →  staging (clean)  →  intermediate (join)  →  marts (a
 **Satellites (incremental, insert-only):**
 - `sat_customer_details` — stores customer attributes with full history. Detects changes via `hash_diff` — if any attribute changes, a new row is inserted. Old rows are never modified.
 
-**Why Data Vault alongside star schema?** Star schema (marts) is optimized for analysts to query. Data Vault (vault) is optimized for auditability and parallel loading. Both coexist — vault is the source of truth, marts are the serving layer.
+**Why Data Vault alongside star schema?** Star schema (marts) is optimized for analysts to query. Data Vault (vault) is optimized for auditability and parallel loading. Both coexist — vault is the source of truth, marts are the serving layer. `fct_customer_segments` demonstrates the vault→mart path (reads exclusively from vault tables).
 
 ---
 
@@ -208,13 +214,14 @@ graph LR
     end
 
     subgraph Intermediate
-        INT[int_orders_enriched<br/>Joined + computed columns]
+        INT[int_orders_enriched<br/>incremental, 3-day lookback]
     end
 
     subgraph Marts
         FCT_R[fct_monthly_revenue<br/>incremental]
         FCT_C[fct_customer_lifetime_value<br/>v1 + v2]
         FCT_P[fct_product_performance]
+        FCT_S[fct_customer_segments<br/>vault-fed]
     end
 
     subgraph Vault["Data Vault 2.0"]
@@ -234,13 +241,48 @@ graph LR
     INT --> FCT_R & FCT_C & FCT_P
     STG_L --> HUB_P & LNK
     STG_C --> HUB_C & SAT
+    HUB_C & SAT & LNK --> FCT_S
     STG_S --> SNP_S
     STG_C --> SNP_C
 ```
 
+## Infrastructure (Terraform)
+
+This repo is self-contained — all AWS infrastructure is provisioned via Terraform in the `terraform/` folder. No dependency on other repos.
+
+### What Gets Deployed
+
+| Resource | Purpose | Cost |
+|----------|---------|------|
+| Redshift Serverless Namespace | Database (`shopstream`) with admin credentials | $0 when idle, ~$3/hr when queries run |
+| Redshift Serverless Workgroup | Compute (8 RPUs, auto-scales) | Pay-per-query |
+| Security Group | Allows port 5439 from anywhere (dev only) | Free |
+| IAM Role (`redshift-copy`) | Allows Redshift to COPY data from public S3 buckets | Free |
+
+### Infrastructure Design Decisions
+
+- **Publicly accessible workgroup:** For dev/learning — dbt connects directly from laptop. Production would use VPC + private subnets.
+- **Default VPC subnets:** Avoids creating a custom VPC (overkill for this project). Redshift sits in the account's default VPC.
+- **Single IAM role for COPY:** Scoped to read-only on the `awssampledbuswest2` public S3 bucket. Cannot write or delete.
+- **No KMS encryption:** Sandbox account resets weekly — KMS adds cost with no benefit for ephemeral learning environments.
+
+### Terraform Files
+
+```
+terraform/
+├── main.tf          # Redshift Serverless + Security Group + IAM Role
+├── variables.tf     # region, environment, redshift_admin_password
+├── outputs.tf       # endpoint, db_name, copy_role_arn
+├── .env.example     # Template for credentials
+└── .gitignore       # Excludes .env, .tfstate, .terraform/
+```
+
+---
+
 ## Setup
 
 ### Prerequisites
+- Terraform >= 1.5.0
 - Python 3.11+
 - dbt-redshift
 - AWS account with Redshift Serverless
@@ -248,6 +290,7 @@ graph LR
 ### Deploy Infrastructure
 ```bash
 cd terraform
+cp .env.example .env   # fill in your credentials
 source .env
 terraform init && terraform apply
 ```
@@ -289,7 +332,8 @@ dbt-ecommerce-warehouse/
 │   │   ├── fct_monthly_revenue.sql         # incremental
 │   │   ├── fct_customer_lifetime_value_v1.sql  # deprecated
 │   │   ├── fct_customer_lifetime_value_v2.sql  # current
-│   │   └── fct_product_performance.sql
+│   │   ├── fct_product_performance.sql
+│   │   └── fct_customer_segments.sql       # vault-fed mart
 │   ├── vault/raw/          # Data Vault 2.0 (insert-only)
 │   │   ├── stg_vault_orders.sql      # hash key computation
 │   │   ├── stg_vault_customers.sql   # hash key + hash_diff
@@ -319,7 +363,7 @@ dbt-ecommerce-warehouse/
 
 ## Design Decisions
 
-- **Table for intermediate (not ephemeral):** The 600M row join is expensive. Ephemeral would re-execute it for each mart (3× cost). Table stores it once.
+- **Incremental for intermediate (not ephemeral):** The 600M row join is expensive. Ephemeral would re-execute it for each mart (3× cost). Incremental stores it once and only reprocesses the last 3 days on subsequent runs.
 - **View for staging:** No storage cost — just SQL aliases for clean names. Always fresh (reads from source on query).
 - **Incremental for int_orders_enriched + fct_monthly_revenue:** 3-day lookback window catches late corrections without reprocessing 600M rows. Second run takes seconds vs minutes.
 - **delete+insert over merge:** Proven pattern on Redshift. Deletes affected rows then re-inserts — same result as merge but more compatible.
