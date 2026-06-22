@@ -34,4 +34,9 @@ models:
       +tags: ['daily']
       +post-hook:
         - "ANALYZE {{ this }}"
+    vault:
+      +schema: vault
+      +tags: ['daily']
+      raw:
+        +materialized: incremental
         
