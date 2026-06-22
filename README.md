@@ -51,34 +51,57 @@ raw_data (source)  →  staging (clean)  →  intermediate (join)  →  marts (a
 
 ### 3. Intermediate Layer — Joining Dimensions to Facts
 
-**1 table** in `dev_intermediate` schema:
+**1 incremental table** in `dev_intermediate` schema:
 - `int_orders_enriched` — joins lineorder with all 4 dimensions (customer, part, supplier, date) and adds a computed column (`profit = revenue - supply_cost`)
 
-**Materialized as table** — the join is expensive (600M × 4 dimension lookups). Materializing it means the join runs once and all downstream marts read from the stored result instead of re-joining.
+**Materialized as incremental** (strategy: `delete+insert`, unique_key: `[order_key, line_number]`). First run processes all 600M rows. Subsequent runs only process the last 3 days (lookback window) — catches late corrections without full reprocessing. Second run takes seconds vs minutes.
 
 ---
 
 ### 4. Marts Layer — Business Metrics
 
-**3 tables** in `dev_marts` schema, each answering a different business question:
+**4 models** in `dev_marts` schema, each answering a different business question:
 
-**`fct_monthly_revenue`** — "How is revenue trending by region and product category?"
+**`fct_monthly_revenue`** (incremental) — "How is revenue trending by region and product category?"
 - Aggregates: total orders, total quantity, total revenue, total profit, avg discount, revenue per order
 - Grouped by: year, month, customer region, product category
+- Incremental with 3-day lookback — only re-aggregates affected months
 
-**`fct_customer_lifetime_value`** — "Who are our most valuable customers?"
-- Aggregates: total orders, lifetime revenue, lifetime profit, years active, avg order value, categories purchased
+**`fct_customer_lifetime_value`** (versioned: v1 + v2) — "Who are our most valuable customers?"
+- v1 (deprecated 2026-09-01): total orders, lifetime revenue, lifetime profit, years active, avg order value, categories purchased
+- v2 (current): adds `avg_discount_pct` + `unique_suppliers`
 - Grouped by: customer (one row per customer)
 
-**`fct_product_performance`** — "Which products have the best margins?"
+**`fct_product_performance`** (table) — "Which products have the best margins?"
 - Aggregates: total orders, unique customers, total quantity sold, total revenue, total profit, profit margin %, revenue per customer
 - Grouped by: product (one row per product)
-
-**Materialized as tables** — analysts and dashboards query these directly. Physical tables mean fast reads without recomputing aggregations on every query.
+- Uses `profit_margin` macro for reusable margin calculation
 
 ---
 
-### 5. Snapshots — Tracking Dimension Changes Over Time (SCD Type II)
+### 5. Data Vault 2.0 — Auditable Raw Layer
+
+**6 models** in `dev_vault` schema:
+
+**Vault staging (views):**
+- `stg_vault_orders` — computes `customer_hash_key`, `product_hash_key`, `order_product_hash_key` using MD5
+- `stg_vault_customers` — computes `customer_hash_key` + `hash_diff` (hash of all descriptive columns)
+
+**Hubs (incremental, insert-only):**
+- `hub_customers` — one row per unique customer, never updated
+- `hub_products` — one row per unique product, never updated
+
+**Links (incremental, insert-only):**
+- `link_order_product` — captures "customer X bought product Y in order Z" relationships
+
+**Satellites (incremental, insert-only):**
+- `sat_customer_details` — stores customer attributes with full history. Detects changes via `hash_diff` — if any attribute changes, a new row is inserted. Old rows are never modified.
+
+**Why Data Vault alongside star schema?** Star schema (marts) is optimized for analysts to query. Data Vault (vault) is optimized for auditability and parallel loading. Both coexist — vault is the source of truth, marts are the serving layer.
+
+---
+
+### 6. Snapshots — Tracking Dimension Changes Over Time (SCD Type II)
 
 **2 snapshot tables** in `snapshots` schema:
 - `snp_supplier` — tracks changes to supplier name, city, nation, region
@@ -144,11 +167,17 @@ Every model, every column has a `description` in YAML schema files. Running `dbt
 
 ### 10. CI/CD (GitHub Actions)
 
-On every PR to main:
-1. **SQLFluff lint** — enforces consistent SQL style (lowercase keywords, 4-space indent)
-2. **dbt deps** — installs packages
-3. **dbt compile** — validates all SQL syntax and references
-4. **dbt build** — runs models + tests against dev environment
+**Two separate workflows:**
+
+**On PR to main (`dbt-ci.yml`):**
+1. **dbt deps** — installs packages
+2. **SQLFluff lint** — enforces consistent SQL style (lowercase keywords, 4-space indent)
+3. **Download manifest** — fetches last production manifest from `dbt-manifest` branch
+4. **Slim build** — `dbt build --select state:modified+` (only changed models + downstream). Falls back to `dbt compile` if no manifest exists yet.
+
+**On push to main (`dbt-deploy.yml`):**
+1. **dbt build** — deploys modified models to `prod` target
+2. **Upload manifest** — pushes updated `manifest.json` to `dbt-manifest` branch for next PR's comparison
 
 ---
 
@@ -253,8 +282,8 @@ dbt-ecommerce-warehouse/
 │   │   ├── stg_part.sql
 │   │   ├── stg_supplier.sql
 │   │   └── stg_date.sql
-│   ├── intermediate/       # Table — joins + enrichment
-│   │   └── int_orders_enriched.sql
+│   ├── intermediate/       # Incremental — joins + enrichment
+│   │   └── int_orders_enriched.sql   # incremental, 3-day lookback
 │   ├── marts/              # Tables — aggregated metrics
 │   │   ├── _schema.yml     # Tests + column docs for marts
 │   │   ├── fct_monthly_revenue.sql         # incremental
